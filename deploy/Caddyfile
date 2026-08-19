@@ -1,0 +1,28 @@
+# Reverse proxy + TLS in front of the gateway.
+# The compose file binds the gateway to 127.0.0.1:8080 on purpose.
+#
+#   sudo apt install caddy
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+{$LLMGW_DOMAIN:localhost} {
+	encode gzip
+	request_body {
+		max_size 16MB
+	}
+
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 15m
+			write_timeout 15m
+			dial_timeout 10s
+		}
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}

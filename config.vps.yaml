@@ -1,0 +1,106 @@
+# Conservative defaults for a 1–2 GB VPS. Copy to config.yaml if you prefer.
+server:
+  host: 0.0.0.0
+  port: 8080
+  auth_required: true
+  read_timeout: 15m
+  write_timeout: 15m
+  idle_timeout: 60s
+  shutdown_timeout: 2m
+  max_header_bytes: 16384
+  max_body_bytes: 16777216
+  log_prompts: false
+  metrics_public: false
+  behind_proxy: true
+  mem_limit: 384MiB
+  redis_strict_ready: true
+
+redis:
+  url: redis://localhost:6379/0
+  enabled: true
+  pool_size: 8
+  min_idle_conns: 1
+
+cache:
+  enabled: true
+  schema_version: v1
+  l1:
+    enabled: true
+    max_entries: 2000
+    ttl: 45s
+  exact:
+    enabled: true
+    default_ttl: 30m
+  singleflight:
+    enabled: true
+    lock_ttl: 5m
+    wait_timeout: 4m
+  semantic:
+    enabled: false
+    allowed_workloads: []
+
+models:
+  refresh_interval: 5m
+
+routing:
+  sticky_sessions: true
+  sticky_ttl: 1h
+  weights:
+    cost: 0.35
+    latency: 0.25
+    error: 0.20
+    quota: 0.10
+    cache_affinity: 0.10
+
+circuit_breaker:
+  failures: 5
+  cooldown: 30s
+  half_open_max: 1
+
+providers:
+  opencode_go:
+    enabled: true
+    name: opencode_go
+    base_url: https://opencode.ai/zen/go/v1
+    api_key_env: OPENCODE_GO_API_KEY
+    timeout: 10m
+  commandcode:
+    enabled: true
+    name: commandcode
+    base_url: https://api.commandcode.ai/provider/v1
+    api_key_env: COMMANDCODE_API_KEY
+    timeout: 10m
+    zdr: false
+
+aliases:
+  default:
+    - { provider: opencode_go, model: deepseek-v4-flash, weight: 1.0 }
+    - { provider: commandcode, model: deepseek/deepseek-v4-flash, weight: 1.0 }
+  fast:
+    - { provider: opencode_go, model: deepseek-v4-flash, weight: 1.0 }
+    - { provider: commandcode, model: deepseek/deepseek-v4-flash, weight: 1.0 }
+  cheap:
+    - { provider: opencode_go, model: mimo-v2.5, weight: 1.0 }
+    - { provider: commandcode, model: xiaomi/mimo-v2.5, weight: 1.0 }
+  coding:
+    - { provider: opencode_go, model: kimi-k2.7-code, weight: 1.0 }
+    - { provider: commandcode, model: moonshotai/Kimi-K2.7-Code, weight: 1.0 }
+  reasoning:
+    - { provider: opencode_go, model: glm-5.3, weight: 1.0 }
+    - { provider: commandcode, model: zai-org/GLM-5.3, weight: 1.0 }
+
+tenants:
+  - id: default
+    api_key_env: GATEWAY_API_KEY
+    admin: true
+    rate_limit_rpm: 300
+    monthly_token_budget: 0
+    allowed_providers: []
+    allowed_models: []
+    cache_namespace: default
+    shared_cache: false
+
+admin:
+  api_key_env: GATEWAY_ADMIN_API_KEY
+
+pricing_file: data/pricing.yaml

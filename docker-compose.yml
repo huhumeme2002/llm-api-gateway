@@ -1,0 +1,79 @@
+# Production-oriented compose for a small VPS (1–2 vCPU, 1–2 GB RAM).
+# Redis is internal-only — do not publish 6379 to the public internet.
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --tcp-backlog
+      - "128"
+      - --timeout
+      - "0"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 160m
+    cpus: 0.50
+    security_opt:
+      - no-new-privileges:true
+
+  gateway:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CONFIG_PATH: /app/config.yaml
+      GOMEMLIMIT: 384MiB
+      GOGC: "100"
+      GOMAXPROCS: "2"
+    volumes:
+      - ${CONFIG_FILE:-./config.vps.yaml}:/app/config.yaml:ro
+      - ./data:/app/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    mem_limit: 512m
+    cpus: 1.50
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  redis-data:

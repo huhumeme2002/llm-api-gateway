@@ -1,0 +1,111 @@
+# USD per 1M tokens. OpenCode Go figures from https://opencode.ai/docs/go/ (2026-08-19).
+# Command Code bills at underlying rates with no markup; values here are estimates for accounting.
+currency: USD
+models:
+  opencode_go/deepseek-v4-flash:
+    input: 0.22
+    output: 0.66
+    cached_read: 0.007
+    note: off-peak documented rate
+  opencode_go/deepseek-v4-pro:
+    input: 0.66
+    output: 1.98
+    cached_read: 0.022
+  opencode_go/mimo-v2.5:
+    input: 0.14
+    output: 0.28
+    cached_read: 0.0028
+  opencode_go/mimo-v2.5-pro:
+    input: 0.435
+    output: 0.87
+    cached_read: 0.003625
+  opencode_go/kimi-k2.7-code:
+    input: 0.95
+    output: 4.00
+    cached_read: 0.19
+  opencode_go/kimi-k2.6:
+    input: 0.95
+    output: 4.00
+    cached_read: 0.16
+  opencode_go/kimi-k3:
+    input: 3.00
+    output: 15.00
+    cached_read: 0.30
+  opencode_go/glm-5.3:
+    input: 1.40
+    output: 4.40
+    cached_read: 0.26
+  opencode_go/glm-5.2:
+    input: 1.40
+    output: 4.40
+    cached_read: 0.26
+  opencode_go/glm-5.1:
+    input: 1.40
+    output: 4.40
+    cached_read: 0.26
+  opencode_go/minimax-m3:
+    input: 0.30
+    output: 1.20
+    cached_read: 0.06
+  opencode_go/minimax-m2.7:
+    input: 0.30
+    output: 1.20
+    cached_read: 0.06
+    cached_write: 0.375
+  opencode_go/qwen3.8-max:
+    input: 2.00
+    output: 6.00
+    cached_read: 0.25
+    cached_write: 2.50
+  opencode_go/qwen3.7-max:
+    input: 2.50
+    output: 7.50
+    cached_read: 0.50
+    cached_write: 3.125
+  opencode_go/qwen3.7-plus:
+    input: 0.40
+    output: 1.60
+    cached_read: 0.04
+    cached_write: 0.50
+  opencode_go/qwen3.6-plus:
+    input: 0.50
+    output: 3.00
+    cached_read: 0.05
+    cached_write: 0.625
+  opencode_go/grok-4.5:
+    input: 2.00
+    output: 6.00
+    cached_read: 0.30
+  opencode_go/gpt-5.6-luna:
+    input: 0.20
+    output: 1.20
+    cached_read: 0.02
+    cached_write: 0.25
+  opencode_go/hy3:
+    input: 0.14
+    output: 0.58
+    cached_read: 0.035
+  commandcode/deepseek/deepseek-v4-flash:
+    input: 0.22
+    output: 0.66
+    cached_read: 0.007
+  commandcode/deepseek/deepseek-v4-pro:
+    input: 0.66
+    output: 1.98
+    cached_read: 0.022
+  commandcode/xiaomi/mimo-v2.5:
+    input: 0.14
+    output: 0.28
+    cached_read: 0.0028
+  commandcode/moonshotai/Kimi-K2.7-Code:
+    input: 0.95
+    output: 4.00
+    cached_read: 0.19
+  commandcode/zai-org/GLM-5.3:
+    input: 1.40
+    output: 4.40
+    cached_read: 0.26
+  default:
+    input: 1.00
+    output: 3.00
+    cached_read: 0.10

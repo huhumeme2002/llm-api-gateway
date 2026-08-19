@@ -1,0 +1,45 @@
+[Unit]
+Description=LLM API Gateway
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=llmgw
+Group=llmgw
+WorkingDirectory=/opt/llmgw
+EnvironmentFile=-/opt/llmgw/.env
+Environment=CONFIG_PATH=/opt/llmgw/config.yaml
+Environment=GOMEMLIMIT=384MiB
+Environment=GOGC=100
+ExecStart=/opt/llmgw/gateway
+Restart=always
+RestartSec=3
+TimeoutStopSec=130
+KillSignal=SIGTERM
+
+# Stay within a 1 GB VPS with headroom for Redis + OS.
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=256
+LimitNOFILE=65535
+LimitNPROC=512
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/llmgw
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
