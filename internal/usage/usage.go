@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,7 +40,14 @@ func New(rdb *redis.Client) *Store {
 }
 
 func (s *Store) Add(ctx context.Context, tenant, provider string, u protocol.Usage, cost float64, latency time.Duration, status int, cacheHit bool) {
+	s.AddCred(ctx, tenant, provider, "", u, cost, latency, status, cacheHit)
+}
+
+func (s *Store) AddCred(ctx context.Context, tenant, provider, cred string, u protocol.Usage, cost float64, latency time.Duration, status int, cacheHit bool) {
 	id := tenant + "|" + provider
+	if cred != "" {
+		id += "|" + cred
+	}
 	s.mu.Lock()
 	c := s.mem[id]
 	if c == nil {
@@ -69,7 +77,11 @@ func (s *Store) Add(ctx context.Context, tenant, provider string, u protocol.Usa
 		return
 	}
 	day := time.Now().UTC().Format("2006-01-02")
-	rk := "llmgw:usage:" + tenant + ":" + provider + ":" + day
+	rk := "llmgw:usage:" + tenant + ":" + provider
+	if cred != "" {
+		rk += ":" + cred
+	}
+	rk += ":" + day
 	pipe := s.rdb.TxPipeline()
 	pipe.HIncrBy(ctx, rk, "requests", 1)
 	pipe.HIncrBy(ctx, rk, "input_tokens", int64(u.InputTokens))
@@ -91,23 +103,36 @@ func (s *Store) Snapshot() map[string]Counters {
 }
 
 func (s *Store) Provider(provider string) Counters {
+	return s.Credential(provider, "")
+}
+
+func (s *Store) Credential(provider, cred string) Counters {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var acc Counters
 	for k, v := range s.mem {
-		if len(k) > len(provider)+1 && k[len(k)-len(provider):] == provider {
-			acc.Requests += v.Requests
-			acc.InputTokens += v.InputTokens
-			acc.CachedInputTokens += v.CachedInputTokens
-			acc.OutputTokens += v.OutputTokens
-			acc.RateLimited += v.RateLimited
-			acc.Errors += v.Errors
-			acc.LatencyMSSum += v.LatencyMSSum
-			acc.CacheHits += v.CacheHits
-			acc.EstimatedCost += v.EstimatedCost
+		parts := splitUsageKey(k)
+		if len(parts) < 2 || parts[1] != provider {
+			continue
 		}
+		if cred != "" && (len(parts) < 3 || parts[2] != cred) {
+			continue
+		}
+		acc.Requests += v.Requests
+		acc.InputTokens += v.InputTokens
+		acc.CachedInputTokens += v.CachedInputTokens
+		acc.OutputTokens += v.OutputTokens
+		acc.RateLimited += v.RateLimited
+		acc.Errors += v.Errors
+		acc.LatencyMSSum += v.LatencyMSSum
+		acc.CacheHits += v.CacheHits
+		acc.EstimatedCost += v.EstimatedCost
 	}
 	return acc
+}
+
+func splitUsageKey(k string) []string {
+	return strings.Split(k, "|")
 }
 
 func (s *Store) ErrorRate(provider string) float64 {

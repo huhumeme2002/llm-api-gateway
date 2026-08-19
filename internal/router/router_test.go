@@ -20,10 +20,17 @@ func (s stub) NativeProtocol(string) provider.Protocol { return "chat_completion
 func (s stub) SupportsProtocol(string, provider.Protocol) bool {
 	return true
 }
-func (s stub) Do(context.Context, provider.Protocol, string, []byte, bool, provider.StreamHandler) (provider.Result, error) {
+func (s stub) Do(context.Context, provider.Protocol, string, []byte, bool, provider.StreamHandler, string) (provider.Result, error) {
 	return provider.Result{}, nil
 }
 func (s stub) Health(context.Context) provider.Health { return provider.Health{Healthy: true} }
+func (s stub) HealthCredential(context.Context, string) provider.Health {
+	return provider.Health{Healthy: true}
+}
+func (s stub) ListCredentials() []provider.CredentialInfo {
+	return []provider.CredentialInfo{{ID: "default", ProxyKind: "none"}}
+}
+func (s stub) ActiveRequests(string) int64 { return 0 }
 
 func TestResolveExactAndAlias(t *testing.T) {
 	cfg := config.Defaults()

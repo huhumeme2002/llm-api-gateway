@@ -168,6 +168,7 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 		comp       protocol.Completion
 		prov       string
 		model      string
+		cred       string
 		status     int
 		latency    time.Duration
 		firstTok   time.Duration
@@ -187,63 +188,74 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 				last = outcome{err: err, status: 400, prov: c.Provider, model: c.Model}
 				continue
 			}
-			var first time.Duration
-			var dest http.ResponseWriter
-			on := func(protocol.StreamEvent) error { return nil }
-			if parsed.Stream && streamTo != nil {
-				flusher, _ := streamTo.(http.Flusher)
-				headersWritten := false
-				on = func(ev protocol.StreamEvent) error {
-					if ev.Err != nil {
-						return ev.Err
-					}
-					meaningful := ev.DeltaContent != "" || ev.DeltaReasoning != "" || len(ev.ToolCalls) > 0
-					if !headersWritten && meaningful {
-						dest = streamTo
-						first = time.Since(start)
-						setCommonHeaders(streamTo, c.Provider, displayModel(parsed.Model, c), cache.HitNone, cacheKey, "", start, first, reqID)
-						streamTo.Header().Set("Content-Type", "text/event-stream")
-						streamTo.Header().Set("Cache-Control", "no-cache")
-						streamTo.Header().Set("x-prefix-hash", prefix.Hash)
-						streamTo.Header().Set("x-prefix-length", strconv.Itoa(prefix.Length))
-						streamTo.Header().Set("x-prefix-reuse-ratio", strconv.FormatFloat(reuse, 'f', 3, 64))
-						streamTo.WriteHeader(http.StatusOK)
-						headersWritten = true
-					}
-					if !headersWritten || proto != nat || len(ev.Raw) == 0 {
-						return nil
-					}
-					if ev.Event != "" {
-						if _, err := streamTo.Write([]byte("event: " + ev.Event + "\n")); err != nil {
+			credIDs := credentialIDs(c.ProviderImpl)
+			orderedCreds := g.Router.OrderCredentials(r.Context(), tenant.ID, session, c.Provider, credIDs)
+			for _, credID := range orderedCreds {
+				var first time.Duration
+				var dest http.ResponseWriter
+				on := func(protocol.StreamEvent) error { return nil }
+				if parsed.Stream && streamTo != nil {
+					flusher, _ := streamTo.(http.Flusher)
+					headersWritten := false
+					on = func(ev protocol.StreamEvent) error {
+						if ev.Err != nil {
+							return ev.Err
+						}
+						meaningful := ev.DeltaContent != "" || ev.DeltaReasoning != "" || len(ev.ToolCalls) > 0
+						if !headersWritten && meaningful {
+							dest = streamTo
+							first = time.Since(start)
+							setCommonHeaders(streamTo, c.Provider, displayModel(parsed.Model, c), cache.HitNone, cacheKey, "", start, first, reqID, credID)
+							streamTo.Header().Set("Content-Type", "text/event-stream")
+							streamTo.Header().Set("Cache-Control", "no-cache")
+							streamTo.Header().Set("x-prefix-hash", prefix.Hash)
+							streamTo.Header().Set("x-prefix-length", strconv.Itoa(prefix.Length))
+							streamTo.Header().Set("x-prefix-reuse-ratio", strconv.FormatFloat(reuse, 'f', 3, 64))
+							streamTo.WriteHeader(http.StatusOK)
+							headersWritten = true
+						}
+						if !headersWritten || proto != nat || len(ev.Raw) == 0 {
+							return nil
+						}
+						if ev.Event != "" {
+							if _, err := streamTo.Write([]byte("event: " + ev.Event + "\n")); err != nil {
+								return err
+							}
+						}
+						if _, err := streamTo.Write(append(append([]byte("data: "), ev.Raw...), '\n', '\n')); err != nil {
 							return err
 						}
+						if flusher != nil {
+							flusher.Flush()
+						}
+						return nil
 					}
-					if _, err := streamTo.Write(append(append([]byte("data: "), ev.Raw...), '\n', '\n')); err != nil {
-						return err
-					}
-					if flusher != nil {
-						flusher.Flush()
-					}
-					return nil
+				}
+				g.M.CredentialActive.WithLabelValues(c.Provider, credID).Inc()
+				res, err := c.ProviderImpl.Do(r.Context(), nat, c.Model, fwd, parsed.Stream, on, credID)
+				g.M.CredentialActive.WithLabelValues(c.Provider, credID).Dec()
+				used := res.CredentialID
+				if used == "" {
+					used = credID
+				}
+				g.Router.ReportCred(c.Provider, used, res.Status, err)
+				g.M.UpstreamRequests.WithLabelValues(c.Provider, used, string(nat), strconv.Itoa(res.Status)).Inc()
+				g.M.UpstreamLatency.WithLabelValues(c.Provider, used).Observe(res.Latency.Seconds())
+				last = outcome{
+					comp: res.Completion, prov: c.Provider, model: c.Model, cred: used,
+					status: res.Status, latency: res.Latency, firstTok: first, err: err, streamedTo: dest,
+				}
+				if err == nil && res.Status < 400 {
+					return last, nil
+				}
+				if dest != nil {
+					return last, err
+				}
+				if !retryable(res.Status, err) {
+					break
 				}
 			}
-			res, err := c.ProviderImpl.Do(r.Context(), nat, c.Model, fwd, parsed.Stream, on)
-			g.Router.Report(c.Provider, res.Status, err)
-			g.M.UpstreamRequests.WithLabelValues(c.Provider, string(nat), strconv.Itoa(res.Status)).Inc()
-			g.M.UpstreamLatency.WithLabelValues(c.Provider).Observe(res.Latency.Seconds())
-			last = outcome{
-				comp: res.Completion, prov: c.Provider, model: c.Model,
-				status: res.Status, latency: res.Latency, firstTok: first, err: err, streamedTo: dest,
-			}
-			if err == nil && res.Status < 400 {
-				return last, nil
-			}
-			if dest != nil {
-				return last, err
-			}
-			if !retryable(res.Status, err) {
-				return last, err
-			}
+			g.Router.Report(c.Provider, last.status, last.err)
 		}
 		if last.err == nil {
 			last.err = errors.New("all providers failed")
@@ -316,12 +328,16 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 		out.comp.ID = "chatcmpl-" + nonce(10)
 	}
 	actual, savedGW, _ := g.Cost.Estimate(out.prov, out.model, out.comp.Usage)
-	g.Usage.Add(r.Context(), tenant.ID, out.prov, out.comp.Usage, actual, out.latency, out.status, false)
-	g.M.TokensInput.WithLabelValues(out.prov).Add(float64(out.comp.Usage.InputTokens))
-	g.M.TokensOutput.WithLabelValues(out.prov).Add(float64(out.comp.Usage.OutputTokens))
-	g.M.EstimatedCost.WithLabelValues(out.prov).Add(actual)
+	cred := out.cred
+	if cred == "" {
+		cred = "default"
+	}
+	g.Usage.AddCred(r.Context(), tenant.ID, out.prov, cred, out.comp.Usage, actual, out.latency, out.status, false)
+	g.M.TokensInput.WithLabelValues(out.prov, cred).Add(float64(out.comp.Usage.InputTokens))
+	g.M.TokensOutput.WithLabelValues(out.prov, cred).Add(float64(out.comp.Usage.OutputTokens))
+	g.M.EstimatedCost.WithLabelValues(out.prov, cred).Add(actual)
 	_ = savedGW
-	g.Router.RememberSticky(r.Context(), tenant.ID, session, out.prov, out.model)
+	g.Router.RememberStickyCred(r.Context(), tenant.ID, session, out.prov, out.model, cred)
 	g.M.RequestsTotal.WithLabelValues(string(proto), "MISS", "200").Inc()
 	if g.M != nil {
 		g.M.ObserveHitRatio(float64(g.Cache.Stats.L1Hits.Load()+g.Cache.Stats.L2Hits.Load()), float64(g.Cache.Stats.L1Hits.Load()+g.Cache.Stats.L2Hits.Load()+g.Cache.Stats.Misses.Load()))
@@ -331,7 +347,7 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 		if out.streamedTo == w {
 			return
 		}
-		setCommonHeaders(w, out.prov, parsed.Model, cache.HitNone, cacheKey, "", start, out.firstTok, reqID)
+		setCommonHeaders(w, out.prov, parsed.Model, cache.HitNone, cacheKey, "", start, out.firstTok, reqID, out.cred)
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 		flush := func() {
@@ -343,7 +359,7 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 		return
 	}
 
-	setCommonHeaders(w, out.prov, parsed.Model, cache.HitNone, cacheKey, "", start, 0, reqID)
+	setCommonHeaders(w, out.prov, parsed.Model, cache.HitNone, cacheKey, "", start, 0, reqID, out.cred)
 	w.Header().Set("x-prefix-hash", prefix.Hash)
 	w.Header().Set("x-prefix-length", strconv.Itoa(prefix.Length))
 	w.Header().Set("x-prefix-reuse-ratio", strconv.FormatFloat(reuse, 'f', 3, 64))
@@ -354,6 +370,7 @@ func (g *Gateway) handleProtocol(w http.ResponseWriter, r *http.Request, proto p
 		"request_id", reqID,
 		"tenant", tenant.ID,
 		"provider", out.prov,
+		"credential_id", out.cred,
 		"model", out.model,
 		"cache", "MISS",
 		"input_tokens", out.comp.Usage.InputTokens,
@@ -374,7 +391,7 @@ func (g *Gateway) serveCached(w http.ResponseWriter, r *http.Request, proto prot
 	g.M.EstimatedCostSaved.Add(saved)
 	g.Usage.Add(r.Context(), tenant.ID, e.Provider, e.Completion.Usage, 0, time.Since(start), 200, true)
 	g.M.ObserveHitRatio(float64(g.Cache.Stats.L1Hits.Load()+g.Cache.Stats.L2Hits.Load()), float64(g.Cache.Stats.L1Hits.Load()+g.Cache.Stats.L2Hits.Load()+g.Cache.Stats.Misses.Load()))
-	setCommonHeaders(w, e.Provider, parsed.Model, kind, cacheKey, cache.Age(e), start, 0, reqID)
+	setCommonHeaders(w, e.Provider, parsed.Model, kind, cacheKey, cache.Age(e), start, 0, reqID, "")
 	w.Header().Set("x-prefix-hash", prefix.Hash)
 	w.Header().Set("x-prefix-length", strconv.Itoa(prefix.Length))
 	w.Header().Set("x-prefix-reuse-ratio", strconv.FormatFloat(reuse, 'f', 3, 64))
@@ -425,9 +442,24 @@ func displayModel(requested string, c router.Candidate) string {
 	return provider.PublicProviderID(c.Provider) + "/" + c.Model
 }
 
-func setCommonHeaders(w http.ResponseWriter, prov, model string, cacheKind cache.HitKind, key, age string, start time.Time, first time.Duration, reqID string) {
+func credentialIDs(p provider.Provider) []string {
+	infos := p.ListCredentials()
+	if len(infos) == 0 {
+		return []string{"default"}
+	}
+	out := make([]string, 0, len(infos))
+	for _, i := range infos {
+		out = append(out, i.ID)
+	}
+	return out
+}
+
+func setCommonHeaders(w http.ResponseWriter, prov, model string, cacheKind cache.HitKind, key, age string, start time.Time, first time.Duration, reqID, cred string) {
 	w.Header().Set("x-gateway-provider", provider.PublicProviderID(prov))
 	w.Header().Set("x-gateway-model", model)
+	if cred != "" {
+		w.Header().Set("x-gateway-credential", cred)
+	}
 	w.Header().Set("x-cache", string(cacheKind))
 	if key != "" {
 		w.Header().Set("x-cache-key", key)

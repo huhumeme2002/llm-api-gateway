@@ -439,7 +439,7 @@ func TestAdminAndHealth(t *testing.T) {
 	cc := cmdcServer(t)
 	defer cc.Close()
 	hs, _, _ := newGW(t, oc.URL, cc.URL, true)
-	for _, p := range []string{"/health", "/ready", "/admin/cache/stats", "/admin/providers", "/admin/models", "/admin/usage"} {
+	for _, p := range []string{"/health", "/ready", "/admin/cache/stats", "/admin/providers", "/admin/models", "/admin/usage", "/admin/credentials"} {
 		r := doJSON(t, hs, "GET", p, "gw-key", nil, nil)
 		if r.StatusCode != 200 {
 			b, _ := io.ReadAll(r.Body)

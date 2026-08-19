@@ -15,6 +15,9 @@ server:
   mem_limit: 384MiB
   redis_strict_ready: true
 
+proxy:
+  direct_fallback: false
+
 redis:
   url: redis://localhost:6379/0
   enabled: true

@@ -14,6 +14,9 @@ server:
   mem_limit: ""
   redis_strict_ready: true
 
+proxy:
+  direct_fallback: false
+
 redis:
   url: redis://localhost:6379/0
   enabled: true
@@ -63,6 +66,13 @@ providers:
     base_url: https://opencode.ai/zen/go/v1
     api_key_env: OPENCODE_GO_API_KEY
     timeout: 10m
+    # credentials:
+    #   - id: go-01
+    #     api_key_env: OPENCODE_GO_KEY_01
+    #     proxy_env: OPENCODE_GO_PROXY_01
+    #   - id: go-02
+    #     api_key_env: OPENCODE_GO_KEY_02
+    #     proxy_env: OPENCODE_GO_PROXY_02
   commandcode:
     enabled: true
     name: commandcode

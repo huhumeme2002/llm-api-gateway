@@ -120,7 +120,7 @@ func (r *Router) Pick(ctx context.Context, tenant, session string, cs []Candidat
 		return cs
 	}
 	if session != "" && r.cfg.Routing.StickySessions {
-		if p, m, ok := r.sticky(ctx, tenant, session); ok {
+		if p, m, _, ok := r.sticky(ctx, tenant, session); ok {
 			for i, c := range cs {
 				if provider.NormalizeName(c.Provider) == provider.NormalizeName(p) && strings.EqualFold(c.Model, m) {
 					out := append([]Candidate{c}, append(cs[:i], cs[i+1:]...)...)
@@ -151,7 +151,7 @@ func (r *Router) Pick(ctx context.Context, tenant, session string, cs []Candidat
 		}
 		aff := 0.0
 		if session != "" {
-			if p, m, ok := r.sticky(ctx, tenant, session); ok && provider.NormalizeName(p) == provider.NormalizeName(c.Provider) && strings.EqualFold(m, c.Model) {
+			if p, m, _, ok := r.sticky(ctx, tenant, session); ok && provider.NormalizeName(p) == provider.NormalizeName(c.Provider) && strings.EqualFold(m, c.Model) {
 				aff = 1
 			}
 		}
@@ -200,12 +200,11 @@ func (r *Router) Allow(name string) bool {
 }
 
 func (r *Router) Report(name string, status int, err error) {
-	r.mu.Lock()
-	b := r.cb[provider.NormalizeName(name)]
-	r.mu.Unlock()
-	if b == nil {
-		return
-	}
+	r.ReportCred(name, "", status, err)
+}
+
+func (r *Router) ReportCred(name, cred string, status int, err error) {
+	b := r.breaker(name, cred)
 	if err != nil || status >= 500 || status == 429 {
 		b.Failure()
 		return
@@ -215,21 +214,50 @@ func (r *Router) Report(name string, status int, err error) {
 	}
 }
 
-func (r *Router) CircuitState(name string) State {
+func (r *Router) breaker(name, cred string) *breaker {
+	key := cbKey(name, cred)
 	r.mu.Lock()
-	b := r.cb[provider.NormalizeName(name)]
-	r.mu.Unlock()
-	if b == nil {
-		return Closed
+	defer r.mu.Unlock()
+	if b := r.cb[key]; b != nil {
+		return b
 	}
-	return b.State()
+	b := newBreaker(r.cfg.CircuitBreaker)
+	r.cb[key] = b
+	return b
+}
+
+func cbKey(name, cred string) string {
+	n := provider.NormalizeName(name)
+	if cred == "" {
+		return n
+	}
+	return n + "/" + cred
+}
+
+func (r *Router) AllowCred(name, cred string) bool {
+	return r.breaker(name, cred).Allow()
+}
+
+func (r *Router) CircuitState(name string) State {
+	return r.CircuitStateCred(name, "")
+}
+
+func (r *Router) CircuitStateCred(name, cred string) State {
+	return r.breaker(name, cred).State()
 }
 
 func (r *Router) RememberSticky(ctx context.Context, tenant, session, prov, model string) {
+	r.RememberStickyCred(ctx, tenant, session, prov, model, "")
+}
+
+func (r *Router) RememberStickyCred(ctx context.Context, tenant, session, prov, model, cred string) {
 	if session == "" || !r.cfg.Routing.StickySessions {
 		return
 	}
 	val := prov + "|" + model
+	if cred != "" {
+		val += "|" + cred
+	}
 	if r.rdb != nil {
 		_ = r.rdb.Set(ctx, stickyKey(tenant, session), val, r.cfg.Routing.StickyTTL).Err()
 		return
@@ -239,12 +267,46 @@ func (r *Router) RememberSticky(ctx context.Context, tenant, session, prov, mode
 	r.mu.Unlock()
 }
 
-func (r *Router) sticky(ctx context.Context, tenant, session string) (string, string, bool) {
+func (r *Router) StickyCred(ctx context.Context, tenant, session string) (prov, model, cred string, ok bool) {
+	p, m, c, ok := r.sticky(ctx, tenant, session)
+	return p, m, c, ok
+}
+
+func (r *Router) OrderCredentials(ctx context.Context, tenant, session, prov string, ids []string) []string {
+	if len(ids) == 0 {
+		return []string{"default"}
+	}
+	var sticky string
+	if session != "" && r.cfg.Routing.StickySessions {
+		if p, _, c, ok := r.sticky(ctx, tenant, session); ok && provider.NormalizeName(p) == provider.NormalizeName(prov) {
+			sticky = c
+		}
+	}
+	var out []string
+	seen := map[string]bool{}
+	push := func(id string) {
+		if id == "" || seen[id] || !r.AllowCred(prov, id) {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	push(sticky)
+	for _, id := range ids {
+		push(id)
+	}
+	if len(out) == 0 {
+		return append([]string{}, ids...)
+	}
+	return out
+}
+
+func (r *Router) sticky(ctx context.Context, tenant, session string) (string, string, string, bool) {
 	var val string
 	if r.rdb != nil {
 		v, err := r.rdb.Get(ctx, stickyKey(tenant, session)).Result()
 		if err != nil {
-			return "", "", false
+			return "", "", "", false
 		}
 		val = v
 	} else {
@@ -252,8 +314,15 @@ func (r *Router) sticky(ctx context.Context, tenant, session string) (string, st
 		val = r.prefix["sticky:"+tenant+":"+session]
 		r.mu.Unlock()
 	}
-	p, m, ok := strings.Cut(val, "|")
-	return p, m, ok && p != "" && m != ""
+	parts := strings.Split(val, "|")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", "", false
+	}
+	cred := ""
+	if len(parts) >= 3 {
+		cred = parts[2]
+	}
+	return parts[0], parts[1], cred, true
 }
 
 func stickyKey(tenant, session string) string {

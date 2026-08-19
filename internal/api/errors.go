@@ -5,9 +5,11 @@ import (
 	"net/http"
 
 	"llmgw/internal/protocol"
+	"llmgw/internal/provider"
 )
 
 func writeError(w http.ResponseWriter, proto protocol.Protocol, status int, typ, msg string) {
+	msg = provider.Redact(msg)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if proto == protocol.Messages {

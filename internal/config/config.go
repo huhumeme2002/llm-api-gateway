@@ -22,6 +22,13 @@ type Config struct {
 	Tenants        []TenantConfig            `yaml:"tenants"`
 	Admin          AdminConfig               `yaml:"admin"`
 	PricingFile    string                    `yaml:"pricing_file"`
+	Proxy          ProxyConfig               `yaml:"proxy"`
+}
+
+type ProxyConfig struct {
+	// DirectFallback is false by default: a dead proxy never silently
+	// retries that credential over the server's own IP.
+	DirectFallback bool `yaml:"direct_fallback"`
 }
 
 type ServerConfig struct {
@@ -104,12 +111,19 @@ type CircuitBreakerConfig struct {
 }
 
 type ProviderConfig struct {
-	Enabled   bool          `yaml:"enabled"`
-	Name      string        `yaml:"name"`
-	BaseURL   string        `yaml:"base_url"`
-	APIKeyEnv string        `yaml:"api_key_env"`
-	Timeout   time.Duration `yaml:"timeout"`
-	ZDR       bool          `yaml:"zdr"`
+	Enabled     bool               `yaml:"enabled"`
+	Name        string             `yaml:"name"`
+	BaseURL     string             `yaml:"base_url"`
+	APIKeyEnv   string             `yaml:"api_key_env"`
+	Timeout     time.Duration      `yaml:"timeout"`
+	ZDR         bool               `yaml:"zdr"`
+	Credentials []CredentialConfig `yaml:"credentials"`
+}
+
+type CredentialConfig struct {
+	ID        string `yaml:"id"`
+	APIKeyEnv string `yaml:"api_key_env"`
+	ProxyEnv  string `yaml:"proxy_env"`
 }
 
 type AliasTarget struct {
@@ -257,17 +271,50 @@ func (c *Config) Addr() string {
 }
 
 func (c *Config) ProviderAPIKey(p ProviderConfig) string {
-	if p.APIKeyEnv == "" {
+	creds := p.ResolvedCredentials()
+	if len(creds) == 0 {
+		return lookupAPIKey(p.APIKeyEnv)
+	}
+	return lookupAPIKey(creds[0].APIKeyEnv)
+}
+
+// ResolvedCredentials returns explicit credentials, or a synthetic "default"
+// entry from the legacy api_key_env field.
+func (p ProviderConfig) ResolvedCredentials() []CredentialConfig {
+	if len(p.Credentials) > 0 {
+		out := make([]CredentialConfig, 0, len(p.Credentials))
+		for _, c := range p.Credentials {
+			if strings.TrimSpace(c.ID) == "" {
+				c.ID = "default"
+			}
+			out = append(out, c)
+		}
+		return out
+	}
+	if strings.TrimSpace(p.APIKeyEnv) == "" {
+		return []CredentialConfig{{ID: "default"}}
+	}
+	return []CredentialConfig{{ID: "default", APIKeyEnv: p.APIKeyEnv}}
+}
+
+func lookupAPIKey(envName string) string {
+	if envName == "" {
 		return ""
 	}
-	if v := os.Getenv(p.APIKeyEnv); v != "" {
+	if v := os.Getenv(envName); v != "" {
 		return v
 	}
-	// OpenCode documents both OPENCODE_GO_API_KEY and OPENCODE_API_KEY.
-	if p.APIKeyEnv == "OPENCODE_GO_API_KEY" {
+	if envName == "OPENCODE_GO_API_KEY" {
 		return os.Getenv("OPENCODE_API_KEY")
 	}
 	return ""
+}
+
+func LookupEnv(name string) string {
+	if name == "" {
+		return ""
+	}
+	return os.Getenv(name)
 }
 
 func (c *Config) AdminKey() string {

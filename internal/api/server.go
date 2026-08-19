@@ -24,6 +24,7 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/providers", g.handleAdminProviders)
 	mux.HandleFunc("GET /admin/models", g.handleAdminModels)
 	mux.HandleFunc("GET /admin/usage", g.handleAdminUsage)
+	mux.HandleFunc("GET /admin/credentials", g.handleAdminCredentials)
 	return g.withLimits(withRecover(mux))
 }
 

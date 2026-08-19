@@ -69,6 +69,36 @@ curl -s http://127.0.0.1:8080/health
 
 Cross-compile from another machine: `make linux` → `bin/gateway-linux-amd64` and `bin/gateway-linux-arm64`.
 
+## Multiple keys and proxies
+
+Each provider can have many credentials. **Every key gets its own `http.Client` / `Transport` and (optional) outbound proxy.** Proxies are never swapped on a shared client.
+
+```yaml
+proxy:
+  direct_fallback: false   # dead proxy does not fall back to the VPS IP
+
+providers:
+  opencode_go:
+    credentials:
+      - id: go-01
+        api_key_env: OPENCODE_GO_KEY_01
+        proxy_env: OPENCODE_GO_PROXY_01
+      - id: go-02
+        api_key_env: OPENCODE_GO_KEY_02
+        proxy_env: OPENCODE_GO_PROXY_02
+```
+
+```env
+OPENCODE_GO_KEY_01=xxx
+OPENCODE_GO_PROXY_01=http://user:pass@1.2.3.4:8080
+OPENCODE_GO_KEY_02=xxx
+OPENCODE_GO_PROXY_02=socks5://user:pass@5.6.7.8:1080
+```
+
+`x-session-id` pins a session to the same credential (and therefore the same proxy) while it is healthy. Failover is per-credential via the circuit breaker. `GET /admin/credentials` shows IDs and health — never keys or proxy URLs.
+
+Legacy `api_key_env` still works and becomes credential `default`.
+
 ## Credentials
 
 **OpenCode Go** — subscribe at [opencode.ai/auth](https://opencode.ai/auth), copy the key, set `OPENCODE_GO_API_KEY` (or `OPENCODE_API_KEY`). Same Zen/Go key. Auth header: `Authorization: Bearer`.

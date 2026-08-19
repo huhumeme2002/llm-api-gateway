@@ -8,18 +8,22 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	xproxy "golang.org/x/net/proxy"
 	"llmgw/internal/protocol"
 )
 
 type HTTPConfig struct {
-	Name    string
-	BaseURL string
-	APIKey  string
-	Timeout time.Duration
-	Extra   map[string]string
+	Name      string
+	BaseURL   string
+	APIKey    string
+	Timeout   time.Duration
+	Extra     map[string]string
+	ProxyURL  string // dedicated outbound proxy for this client only
+	CredID    string
 }
 
 type HTTPClient struct {
@@ -31,30 +35,83 @@ func NewHTTP(cfg HTTPConfig) *HTTPClient {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute
 	}
-	// Do not set Client.Timeout: it kills long-lived streams. Deadlines come
-	// from the request context plus ResponseHeaderTimeout / Dialer.
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	return &HTTPClient{
-		cfg: cfg,
-		client: &http.Client{
-			Transport: &http.Transport{
-				Proxy:                 http.ProxyFromEnvironment,
-				DialContext:           dialer.DialContext,
-				ForceAttemptHTTP2:     true,
-				MaxIdleConns:          32,
-				MaxIdleConnsPerHost:   8,
-				MaxConnsPerHost:       24,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-				ResponseHeaderTimeout: 2 * time.Minute,
-				TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+	if cfg.CredID == "" {
+		cfg.CredID = "default"
+	}
+	tr, err := newTransport(cfg.ProxyURL)
+	if err != nil {
+		// Keep a dedicated (broken) client so we never fall back to a shared
+		// direct transport. Calls will fail until the proxy URL is fixed.
+		tr = &http.Transport{
+			DialContext: func(context.Context, string, string) (net.Conn, error) {
+				return nil, RedactError(err)
 			},
-		},
+		}
+	}
+	return &HTTPClient{
+		cfg:    cfg,
+		client: &http.Client{Transport: tr},
 	}
 }
 
-func (c *HTTPClient) Name() string { return c.cfg.Name }
+func newTransport(proxyRaw string) (*http.Transport, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	tr := &http.Transport{
+		// Never ProxyFromEnvironment — each credential owns its route.
+		Proxy:                 nil,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		MaxConnsPerHost:       24,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 2 * time.Minute,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+	proxyRaw = strings.TrimSpace(proxyRaw)
+	if proxyRaw == "" {
+		return tr, nil
+	}
+	u, err := url.Parse(proxyRaw)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "socks5", "socks5h", "socks":
+		var auth *xproxy.Auth
+		if u.User != nil {
+			pass, _ := u.User.Password()
+			auth = &xproxy.Auth{User: u.User.Username(), Password: pass}
+		}
+		sd, err := xproxy.SOCKS5("tcp", u.Host, auth, dialer)
+		if err != nil {
+			return nil, err
+		}
+		if cd, ok := sd.(xproxy.ContextDialer); ok {
+			tr.DialContext = cd.DialContext
+		} else {
+			tr.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
+				return sd.Dial(network, addr)
+			}
+		}
+		tr.Proxy = nil
+	case "http", "https":
+		tr.Proxy = http.ProxyURL(u)
+	default:
+		return nil, fmt.Errorf("unsupported proxy scheme %q", u.Scheme)
+	}
+	return tr, nil
+}
+
+func (c *HTTPClient) Name() string   { return c.cfg.Name }
+func (c *HTTPClient) CredID() string { return c.cfg.CredID }
+func (c *HTTPClient) HasProxy() bool { return strings.TrimSpace(c.cfg.ProxyURL) != "" }
+func (c *HTTPClient) ProxyKind() string {
+	return ProxyKind(c.cfg.ProxyURL)
+}
+func (c *HTTPClient) Transport() http.RoundTripper { return c.client.Transport }
 
 func (c *HTTPClient) GetJSON(ctx context.Context, path string) ([]byte, int, http.Header, error) {
 	return c.do(ctx, http.MethodGet, path, nil, false)
@@ -93,7 +150,7 @@ func (c *HTTPClient) PostJSON(ctx context.Context, path string, body []byte, str
 	resp, err := c.client.Do(req)
 	if err != nil {
 		cancel()
-		return nil, 0, nil, nil, err
+		return nil, 0, nil, nil, RedactError(err)
 	}
 	if stream && resp.StatusCode < 300 {
 		return nil, resp.StatusCode, resp.Header.Clone(), &cancelCloser{ReadCloser: resp.Body, cancel: cancel}, nil
@@ -138,7 +195,7 @@ func (c *HTTPClient) do(ctx context.Context, method, path string, body []byte, s
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, nil, RedactError(err)
 	}
 	defer Drain(resp.Body)
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))

@@ -21,6 +21,7 @@ type Metrics struct {
 	EstimatedCost           *prometheus.CounterVec
 	EstimatedCostSaved      prometheus.Counter
 	PrefixReuse             prometheus.Histogram
+	CredentialActive        *prometheus.GaugeVec
 }
 
 func New(reg prometheus.Registerer) *Metrics {
@@ -44,29 +45,29 @@ func New(reg prometheus.Registerer) *Metrics {
 		UpstreamRequests: f.NewCounterVec(prometheus.CounterOpts{
 			Name: "llmgw_upstream_requests_total",
 			Help: "Upstream calls",
-		}, []string{"provider", "protocol", "code"}),
+		}, []string{"provider", "credential_id", "protocol", "code"}),
 		UpstreamLatency: f.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "llmgw_upstream_latency_seconds",
 			Help:    "Upstream latency",
 			Buckets: prometheus.DefBuckets,
-		}, []string{"provider"}),
+		}, []string{"provider", "credential_id"}),
 		FirstTokenLatency: f.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "llmgw_first_token_latency_seconds",
 			Help:    "Time to first streamed token",
 			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10},
-		}, []string{"provider", "cache"}),
+		}, []string{"provider", "credential_id", "cache"}),
 		TokensInput: f.NewCounterVec(prometheus.CounterOpts{
 			Name: "llmgw_tokens_input_total", Help: "Input tokens",
-		}, []string{"provider"}),
+		}, []string{"provider", "credential_id"}),
 		TokensOutput: f.NewCounterVec(prometheus.CounterOpts{
 			Name: "llmgw_tokens_output_total", Help: "Output tokens",
-		}, []string{"provider"}),
+		}, []string{"provider", "credential_id"}),
 		CachedTokens: f.NewCounter(prometheus.CounterOpts{
 			Name: "llmgw_cached_tokens_total", Help: "Tokens served from gateway cache",
 		}),
 		EstimatedCost: f.NewCounterVec(prometheus.CounterOpts{
 			Name: "llmgw_estimated_cost_total", Help: "Estimated USD spent",
-		}, []string{"provider"}),
+		}, []string{"provider", "credential_id"}),
 		EstimatedCostSaved: f.NewCounter(prometheus.CounterOpts{
 			Name: "llmgw_estimated_cost_saved_total", Help: "Estimated USD saved by gateway cache",
 		}),
@@ -75,6 +76,10 @@ func New(reg prometheus.Registerer) *Metrics {
 			Help:    "Session prefix reuse (1 = identical prefix)",
 			Buckets: []float64{0, 0.25, 0.5, 0.75, 1},
 		}),
+		CredentialActive: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "llmgw_credential_active_requests",
+			Help: "In-flight upstream requests per credential",
+		}, []string{"provider", "credential_id"}),
 	}
 }
 

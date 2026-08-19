@@ -36,10 +36,11 @@ type Health struct {
 }
 
 type Result struct {
-	Completion protocol.Completion
-	Status     int
-	Latency    time.Duration
-	Headers    http.Header
+	Completion   protocol.Completion
+	Status       int
+	Latency      time.Duration
+	Headers      http.Header
+	CredentialID string
 }
 
 type StreamHandler func(protocol.StreamEvent) error
@@ -47,10 +48,13 @@ type StreamHandler func(protocol.StreamEvent) error
 type Provider interface {
 	Name() string
 	ListModels(ctx context.Context) ([]Model, error)
+	ListCredentials() []CredentialInfo
 	NativeProtocol(modelID string) Protocol
 	SupportsProtocol(modelID string, p Protocol) bool
-	Do(ctx context.Context, native Protocol, modelID string, raw []byte, stream bool, onStream StreamHandler) (Result, error)
+	Do(ctx context.Context, native Protocol, modelID string, raw []byte, stream bool, onStream StreamHandler, credID string) (Result, error)
 	Health(ctx context.Context) Health
+	HealthCredential(ctx context.Context, credID string) Health
+	ActiveRequests(credID string) int64
 }
 
 func NormalizeName(s string) string {

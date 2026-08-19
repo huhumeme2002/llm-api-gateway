@@ -115,6 +115,39 @@ func (g *Gateway) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"models": g.Reg.Models()})
 }
 
+func (g *Gateway) handleAdminCredentials(w http.ResponseWriter, r *http.Request) {
+	if !g.requireAdmin(w, r) {
+		return
+	}
+	var out []map[string]any
+	for name, p := range g.Reg.All() {
+		for _, info := range p.ListCredentials() {
+			h := p.HealthCredential(r.Context(), info.ID)
+			u := g.Usage.Credential(name, info.ID)
+			avg := 0.0
+			if u.Requests > 0 {
+				avg = float64(u.LatencyMSSum) / float64(u.Requests)
+			}
+			out = append(out, map[string]any{
+				"provider":          name,
+				"id":                info.ID,
+				"has_proxy":         info.HasProxy,
+				"proxy_kind":        info.ProxyKind,
+				"health":            map[string]any{"healthy": h.Healthy, "checked_at": h.CheckedAt},
+				"circuit_breaker":   g.Router.CircuitStateCred(name, info.ID),
+				"requests":          u.Requests,
+				"active_requests":   p.ActiveRequests(info.ID),
+				"input_tokens":      u.InputTokens,
+				"output_tokens":     u.OutputTokens,
+				"429":               u.RateLimited,
+				"errors":            u.Errors,
+				"recent_latency_ms": avg,
+			})
+		}
+	}
+	writeJSON(w, 200, map[string]any{"credentials": out})
+}
+
 func (g *Gateway) handleAdminUsage(w http.ResponseWriter, r *http.Request) {
 	if !g.requireAdmin(w, r) {
 		return

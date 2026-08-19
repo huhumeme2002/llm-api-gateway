@@ -20,19 +20,17 @@ const Name = "opencode_go"
 // Chat: most models. Responses: grok-4.5, gpt-5.6-luna. Messages: MiniMax + Qwen.
 
 type Adapter struct {
-	http *provider.HTTPClient
+	pool *provider.Pool
 	mu   sync.RWMutex
 	prot map[string]protocol.Protocol
 }
 
 func New(cfg config.ProviderConfig, apiKey string) *Adapter {
+	if cfg.Name == "" {
+		cfg.Name = Name
+	}
 	a := &Adapter{
-		http: provider.NewHTTP(provider.HTTPConfig{
-			Name:    Name,
-			BaseURL: strings.TrimRight(cfg.BaseURL, "/"),
-			APIKey:  apiKey,
-			Timeout: cfg.Timeout,
-		}),
+		pool: provider.NewPool(cfg, apiKey, nil),
 		prot: map[string]protocol.Protocol{},
 	}
 	a.seedProtocols()
@@ -85,8 +83,21 @@ func (a *Adapter) SupportsProtocol(modelID string, p protocol.Protocol) bool {
 	return a.NativeProtocol(modelID) == p
 }
 
+func (a *Adapter) ListCredentials() []provider.CredentialInfo { return a.pool.Infos() }
+
+func (a *Adapter) ActiveRequests(credID string) int64 {
+	if s := a.pool.Get(credID); s != nil {
+		return s.Active.Load()
+	}
+	return 0
+}
+
 func (a *Adapter) ListModels(ctx context.Context) ([]provider.Model, error) {
-	b, _, _, err := a.http.GetJSON(ctx, "models")
+	slot := a.pool.First()
+	if slot == nil {
+		return nil, errNoCred
+	}
+	b, _, _, err := slot.Client.GetJSON(ctx, "models")
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +141,17 @@ func (a *Adapter) lookupLocked(id string) protocol.Protocol {
 	return a.NativeProtocol(id)
 }
 
-func (a *Adapter) Do(ctx context.Context, native protocol.Protocol, modelID string, raw []byte, stream bool, on provider.StreamHandler) (provider.Result, error) {
+func (a *Adapter) Do(ctx context.Context, native protocol.Protocol, modelID string, raw []byte, stream bool, on provider.StreamHandler, credID string) (provider.Result, error) {
+	slot := a.pool.Get(credID)
+	if slot == nil {
+		return provider.Result{Status: 503}, errNoCred
+	}
+	slot.Begin()
+	defer slot.End()
 	path := pathFor(native)
 	start := time.Now()
-	body, status, hdr, rc, err := a.http.PostJSON(ctx, path, raw, stream)
-	res := provider.Result{Status: status, Latency: time.Since(start), Headers: hdr}
+	body, status, hdr, rc, err := slot.Client.PostJSON(ctx, path, raw, stream)
+	res := provider.Result{Status: status, Latency: time.Since(start), Headers: hdr, CredentialID: slot.Info.ID}
 	if err != nil {
 		return res, err
 	}
@@ -156,16 +173,18 @@ func (a *Adapter) Do(ctx context.Context, native protocol.Protocol, modelID stri
 }
 
 func (a *Adapter) Health(ctx context.Context) provider.Health {
-	h := provider.Health{Name: Name, CheckedAt: time.Now().UTC()}
-	_, status, _, err := a.http.GetJSON(ctx, "models")
-	if err != nil {
-		h.Healthy = false
-		h.Message = err.Error()
-		return h
-	}
-	h.Healthy = status < 300
-	return h
+	return a.pool.HealthAny(ctx, Name)
 }
+
+func (a *Adapter) HealthCredential(ctx context.Context, credID string) provider.Health {
+	return a.pool.HealthOne(ctx, Name, credID)
+}
+
+var errNoCred = errString("no credential")
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
 
 func pathFor(p protocol.Protocol) string {
 	switch p {
