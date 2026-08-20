@@ -80,23 +80,38 @@ providers:
     api_key_env: COMMANDCODE_API_KEY
     timeout: 10m
     zdr: false
+  ltnproxy:
+    enabled: true
+    name: ltnproxy
+    base_url: https://ltnproxy.com/v1
+    api_key_env: LTN_API_KEY
+    timeout: 10m
+    # credentials:
+    #   - id: ltn-01
+    #     api_key_env: LTN_KEY_01
+    #     proxy_env: LTN_PROXY_01
 
 aliases:
   default:
     - { provider: opencode_go, model: deepseek-v4-flash, weight: 1.0 }
     - { provider: commandcode, model: deepseek/deepseek-v4-flash, weight: 1.0 }
+    - { provider: ltnproxy, model: xai/grok-4.5, weight: 1.0 }
   fast:
     - { provider: opencode_go, model: deepseek-v4-flash, weight: 1.0 }
     - { provider: commandcode, model: deepseek/deepseek-v4-flash, weight: 1.0 }
+    - { provider: ltnproxy, model: deepseek/deepseek-v4-pro-0813, weight: 1.0 }
   cheap:
     - { provider: opencode_go, model: mimo-v2.5, weight: 1.0 }
     - { provider: commandcode, model: xiaomi/mimo-v2.5, weight: 1.0 }
+    - { provider: ltnproxy, model: deepseek/deepseek-v4-flash, weight: 1.0 }
   coding:
     - { provider: opencode_go, model: kimi-k2.7-code, weight: 1.0 }
     - { provider: commandcode, model: moonshotai/Kimi-K2.7-Code, weight: 1.0 }
+    - { provider: ltnproxy, model: xai/grok-4.3, weight: 1.0 }
   reasoning:
     - { provider: opencode_go, model: glm-5.3, weight: 1.0 }
     - { provider: commandcode, model: zai-org/GLM-5.3, weight: 1.0 }
+    - { provider: ltnproxy, model: xai/grok-4.6, weight: 1.0 }
 
 tenants:
   - id: default

@@ -21,6 +21,20 @@ Verified against official public docs on 2026-08-19.
 
 Native protocol is **per model**, not one protocol for the whole provider. The adapter picks the documented endpoint and never invents capabilities.
 
+### LTN Proxy
+
+| Item | Value |
+| --- | --- |
+| Base URL | `https://ltnproxy.com/v1` |
+| Auth | `Authorization: Bearer $LTN_API_KEY` |
+| Models | `GET /v1/models` |
+| Chat Completions | `POST /v1/chat/completions` |
+| Messages / Responses | Not advertised — gateway translates to Chat Completions |
+| Usage | `prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`, `cache_creation_input_tokens`, `reasoning_tokens` |
+| Notes | Team allowlists apply; some `alibaba/*` IDs may 502 restricted |
+
+Client model IDs: `ltnproxy/deepseek/deepseek-v4-flash`, `ltnproxy/xai/grok-4.6`, …
+
 ### Command Code Provider API
 
 | Item | Value |

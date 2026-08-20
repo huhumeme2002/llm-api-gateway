@@ -91,7 +91,7 @@ func (r *Router) Resolve(model string) ([]Candidate, error) {
 
 func splitProviderModel(s string) (string, string, bool) {
 	// opencode-go/deepseek-v4-flash or commandcode/deepseek/deepseek-v4-flash
-	for _, p := range []string{"opencode-go", "opencode_go", "opencodego", "commandcode", "command-code", "command_code"} {
+	for _, p := range []string{"opencode-go", "opencode_go", "opencodego", "commandcode", "command-code", "command_code", "ltnproxy", "ltn-proxy", "ltn_proxy"} {
 		pref := p + "/"
 		if strings.HasPrefix(strings.ToLower(s), pref) {
 			return p, s[len(pref):], true
@@ -109,7 +109,7 @@ func splitProviderModel(s string) (string, string, bool) {
 func knownProvider(s string) (string, bool) {
 	n := provider.NormalizeName(s)
 	switch n {
-	case "opencode_go", "opencodego", "commandcode", "command_code":
+	case "opencode_go", "opencodego", "commandcode", "command_code", "ltnproxy", "ltn_proxy":
 		return n, true
 	}
 	return "", false

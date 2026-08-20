@@ -82,7 +82,7 @@ func ParseUpstreamCompletion(proto Protocol, body []byte) (Completion, error) {
 			InputTokens:       int(root.Get("usage.prompt_tokens").Int()),
 			OutputTokens:      int(root.Get("usage.completion_tokens").Int()),
 			CachedInputTokens: int(firstInt(root, "usage.prompt_tokens_details.cached_tokens", "usage.prompt_cache_hit_tokens")),
-			CacheWriteTokens:  int(root.Get("usage.prompt_cache_miss_tokens").Int()),
+			CacheWriteTokens: int(firstInt(root, "usage.cache_creation_input_tokens", "usage.prompt_tokens_details.cache_creation_tokens", "usage.prompt_cache_miss_tokens")),
 			ReasoningTokens:   int(root.Get("usage.completion_tokens_details.reasoning_tokens").Int()),
 		}
 	}

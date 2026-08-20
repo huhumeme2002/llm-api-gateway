@@ -23,6 +23,7 @@ import (
 	"llmgw/internal/metrics"
 	"llmgw/internal/provider"
 	"llmgw/internal/provider/commandcode"
+	"llmgw/internal/provider/ltnproxy"
 	"llmgw/internal/provider/opencodego"
 	"llmgw/internal/router"
 	"llmgw/internal/singleflight"
@@ -62,6 +63,12 @@ func main() {
 			p.BaseURL = "https://api.commandcode.ai/provider/v1"
 		}
 		adapters = append(adapters, commandcode.New(p, cfg.ProviderAPIKey(p)))
+	}
+	if p, ok := cfg.Providers["ltnproxy"]; ok && p.Enabled {
+		if p.BaseURL == "" {
+			p.BaseURL = "https://ltnproxy.com/v1"
+		}
+		adapters = append(adapters, ltnproxy.New(p, cfg.ProviderAPIKey(p)))
 	}
 	reg := provider.NewRegistry(log, cfg.Models.RefreshInterval, adapters...)
 	ctx, cancel := context.WithCancel(context.Background())

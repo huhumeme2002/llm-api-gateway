@@ -69,6 +69,8 @@ func PublicProviderID(name string) string {
 		return "opencode-go"
 	case "commandcode", "command_code", "command-code":
 		return "commandcode"
+	case "ltnproxy", "ltn_proxy":
+		return "ltnproxy"
 	default:
 		return name
 	}

@@ -1,6 +1,6 @@
 # LLM API Gateway
 
-Self-hosted gateway that fronts **OpenCode Go** and **Command Code** behind one OpenAI- and Anthropic-compatible API.
+Self-hosted gateway that fronts **OpenCode Go**, **Command Code**, and **LTN Proxy** behind one OpenAI- and Anthropic-compatible API.
 
 ```text
 http://localhost:8080/v1/models
@@ -13,12 +13,13 @@ Verified against official docs on 2026-08-19:
 
 - OpenCode Go: https://opencode.ai/docs/go/ — base `https://opencode.ai/zen/go/v1`
 - Command Code Provider API: https://commandcode.ai/docs/provider — base `https://api.commandcode.ai/provider/v1`
+- LTN Proxy: OpenAI-compatible — base `https://ltnproxy.com/v1` (`LTN_API_KEY`)
 
 ## Start (local)
 
 ```bash
 cp .env.example .env
-# set OPENCODE_GO_API_KEY, COMMANDCODE_API_KEY, GATEWAY_API_KEY
+# set OPENCODE_GO_API_KEY, COMMANDCODE_API_KEY, LTN_API_KEY, GATEWAY_API_KEY
 
 docker compose up -d --build
 # or: make run
@@ -104,6 +105,8 @@ Legacy `api_key_env` still works and becomes credential `default`.
 **OpenCode Go** — subscribe at [opencode.ai/auth](https://opencode.ai/auth), copy the key, set `OPENCODE_GO_API_KEY` (or `OPENCODE_API_KEY`). Same Zen/Go key. Auth header: `Authorization: Bearer`.
 
 **Command Code** — Studio → API keys. Needs GOAT/Pro/Max/Team/Provider (the Command Code *Go* plan has **no** Provider API). Set `COMMANDCODE_API_KEY`.
+
+**LTN Proxy** — set `LTN_API_KEY`. Call models as `ltnproxy/<upstream-id>`, e.g. `ltnproxy/xai/grok-4.6` or `ltnproxy/deepseek/deepseek-v4-flash`. Chat Completions only natively; Messages/Responses are translated. Some catalog IDs may be team-restricted on the LTN account.
 
 **Gateway** — clients send `Authorization: Bearer $GATEWAY_API_KEY` (Anthropic clients may use `x-api-key`).
 

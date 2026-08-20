@@ -50,6 +50,16 @@ func TestResolveExactAndAlias(t *testing.T) {
 	}
 }
 
+func TestResolveLtnProxyNestedModel(t *testing.T) {
+	cfg := config.Defaults()
+	reg := provider.NewRegistry(nil, 0, stub{name: "ltnproxy"})
+	rt := New(cfg, reg, usage.New(nil), nil)
+	cs, err := rt.Resolve("ltnproxy/deepseek/deepseek-v4-flash")
+	if err != nil || len(cs) != 1 || cs[0].Provider != "ltnproxy" || cs[0].Model != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("%v %+v", err, cs)
+	}
+}
+
 func TestCircuitBreaker(t *testing.T) {
 	b := newBreaker(config.CircuitBreakerConfig{Failures: 2, Cooldown: 30 * time.Millisecond, HalfOpenMax: 1})
 	if !b.Allow() {
