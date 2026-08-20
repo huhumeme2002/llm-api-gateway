@@ -16,3 +16,4 @@ coverage.txt
 *.log
 initial .txt
 "initial .txt"
+bench/results/
