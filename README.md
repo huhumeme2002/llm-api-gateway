@@ -191,5 +191,3 @@ make benchmark
 ## Layout
 
 See `DESIGN.md` and `cmd/gateway`, `internal/{api,auth,cache,canonical,provider,protocol,router,singleflight}`.
-
-Agents: `python scripts/agent_start.py` then `AGENTS.md`. Working state is `.agent/`, not chat. Canonical handoff: `docs/PROJECT_HANDOFF.md`.
